@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    restart: always
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    # This keeps the container alive if the bot crashes or needs a restart
+    tty: true
+    stdin_open: true
