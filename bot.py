@@ -1,21 +1,32 @@
 import os
 import json
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-PREFIX = os.getenv('PREFIX', '.')
 
 # Define intents
 intents = discord.Intents.default()
-intents.message_content = True
 intents.members = True  # Required for role assignment
+# Message content intent not strictly needed for slash commands, 
+# but good for general functionality if needed.
+intents.message_content = True 
 
-# Setup bot
-bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+class MyBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        # This is where we sync the slash commands
+        print("Syncing slash commands...")
+        await self.tree.sync()
+        print("Slash commands synced!")
+
+bot = MyBot()
 
 # File for storing keys and configuration
 CONFIG_FILE = 'config.json'
@@ -40,25 +51,27 @@ async def on_ready():
     print(f'Logged in as {bot.user.name} ({bot.user.id})')
     print('------')
 
-@bot.command(name='setrole')
-@commands.has_permissions(administrator=True)
-async def set_role(ctx, role: discord.Role):
+@bot.tree.command(name='setrole', description='Set the role to be given upon claiming (Admin only)')
+@app_commands.describe(role='The role to assign to users who claim a valid key')
+@app_commands.checks.has_permissions(administrator=True)
+async def set_role(interaction: discord.Interaction, role: discord.Role):
     """Admin command to set the role to be given upon claiming."""
     config = load_config()
     config['role_id'] = role.id
     save_config(config)
-    await ctx.send(f'Success! The role to be assigned has been set to: **{role.name}**')
+    await interaction.response.send_message(f'Success! The role to be assigned has been set to: **{role.name}**', ephemeral=True)
 
-@bot.command(name='addkeys')
-@commands.has_permissions(administrator=True)
-async def add_keys(ctx, *, keys_str: str):
-    """Admin command to add one or more keys to the system (space, comma, or newline separated)."""
+@bot.tree.command(name='addkeys', description='Add one or more keys to the system (Admin only)')
+@app_commands.describe(keys_str='Keys separated by spaces, commas, or newlines')
+@app_commands.checks.has_permissions(administrator=True)
+async def add_keys(interaction: discord.Interaction, keys_str: str):
+    """Admin command to add one or more keys to the system."""
     # Replace commas and newlines with spaces to simplify splitting
     normalized_keys = keys_str.replace(',', ' ').replace('\n', ' ')
     keys = [k.strip() for k in normalized_keys.split() if k.strip()]
     
     if not keys:
-        await ctx.send('Please provide at least one key to add.')
+        await interaction.response.send_message('Please provide at least one key to add.', ephemeral=True)
         return
 
     config = load_config()
@@ -66,61 +79,54 @@ async def add_keys(ctx, *, keys_str: str):
     new_keys = [k for k in keys if k not in existing_keys]
     
     if not new_keys:
-        await ctx.send('All provided keys are already in the system.')
+        await interaction.response.send_message('All provided keys are already in the system.', ephemeral=True)
         return
 
     config['keys'] = list(existing_keys.union(set(new_keys)))
     save_config(config)
-    await ctx.send(f'Successfully added {len(new_keys)} new key(s).')
+    await interaction.response.send_message(f'Successfully added {len(new_keys)} new key(s).', ephemeral=True)
 
-@bot.command(name='claim')
-async def claim(ctx, key: str):
+@bot.tree.command(name='claim', description='Claim the set role using a valid key')
+@app_commands.describe(key='The valid key you want to use')
+async def claim(interaction: discord.Interaction, key: str):
     """User command to claim the set role using a valid key."""
     config = load_config()
     keys = config.get('keys', [])
     role_id = config.get('role_id')
 
     if not role_id:
-        await ctx.send('The claimable role has not been set by an administrator yet.')
+        await interaction.response.send_message('The claimable role has not been set by an administrator yet.', ephemeral=True)
         return
 
     if key in keys:
-        role = ctx.guild.get_role(role_id)
+        role = interaction.guild.get_role(role_id)
         if not role:
-            await ctx.send('Error: The configured role could not be found in this server.')
+            await interaction.response.send_message('Error: The configured role could not be found in this server.', ephemeral=True)
             return
 
         try:
-            await ctx.author.add_roles(role)
+            await interaction.user.add_roles(role)
             # Remove the key after successful claim
             keys.remove(key)
             config['keys'] = keys
             save_config(config)
-            await ctx.send(f'Congratulations! {ctx.author.mention}, you have been roled the the specified role.')
+            await interaction.response.send_message(f'Congratulations! {interaction.user.mention}, you have been roled the the specified role.')
         except discord.Forbidden:
-            await ctx.send('Error: I do not have permission to manage roles. Please check my permissions.')
+            await interaction.response.send_message('Error: I do not have permission to manage roles. Please check my permissions and hierarchy.', ephemeral=True)
         except Exception as e:
-            await ctx.send(f'An unexpected error occurred: {str(e)}')
+            await interaction.response.send_message(f'An unexpected error occurred: {str(e)}', ephemeral=True)
     else:
-        await ctx.send('Invalid key. Please check your key and try again.')
+        await interaction.response.send_message('Invalid key. Please check your key and try again.', ephemeral=True)
 
-@set_role.error
-@add_keys.error
-async def admin_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send('You do not have permission to use this command (Administrator required).')
-    elif isinstance(error, commands.MissingRequiredArgument):
-        if ctx.command.name == 'setrole':
-            await ctx.send(f'Usage: {PREFIX}setrole @role')
-        elif ctx.command.name == 'addkeys':
-            await ctx.send(f'Usage: {PREFIX}addkeys <key1> <key2> ... (separated by space, comma or newline)')
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send('Invalid argument. Please provide a valid role mention or ID.')
-
-@claim.error
-async def claim_error(ctx, error):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f'Usage: {PREFIX}claim <your_key>')
+# Global error handler for slash commands
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message('You do not have permission to use this command (Administrator required).', ephemeral=True)
+    else:
+        print(f"Unhandled error: {error}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"An error occurred: {str(error)}", ephemeral=True)
 
 if __name__ == '__main__':
     if not TOKEN:
