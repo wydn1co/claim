@@ -158,9 +158,27 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
 if __name__ == '__main__':
     if not TOKEN:
-        logger.critical('DISCORD_TOKEN not found in environment. Please set it in .env file.')
+        logger.critical('DISCORD_TOKEN not found in environment. Please check your .env file or environment variables.')
     else:
-        try:
-            bot.run(TOKEN)
-        except Exception as e:
-            logger.critical(f"Bot failed to start or crashed: {e}")
+        import time
+        max_retries = 5
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                logger.info(f"Starting bot (Attempt {retry_count + 1})...")
+                bot.run(TOKEN)
+                # If bot.run() returns normally (e.g., bot.close()), we can stop retrying
+                break
+            except discord.LoginFailure:
+                logger.critical("Invalid Discord Token provided. Please check your .env file.")
+                break
+            except Exception as e:
+                retry_count += 1
+                wait_time = min(60, 2 ** retry_count) # Exponential backoff up to 60s
+                logger.error(f"Bot crashed with error: {e}")
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+        
+        if retry_count >= max_retries:
+            logger.critical("Maximum retries reached. Container will now exit.")

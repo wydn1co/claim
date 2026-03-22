@@ -1,11 +1,12 @@
 services:
   bot:
     build: .
-    restart: always
+    container_name: discord_claim_bot
+    restart: unless-stopped
     volumes:
-      - .:/app
+      - ./config.json:/app/config.json
     env_file:
       - .env
-    # This keeps the container alive if the bot crashes or needs a restart
-    tty: true
-    stdin_open: true
+    # tty/stdin_open can sometimes interfere with logging on some hosts
+    tty: false
+    stdin_open: false
