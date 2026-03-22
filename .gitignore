@@ -1,0 +1,21 @@
+# Environment variables
+.env
+.env.example
+
+# Configuration and storage
+config.json
+
+# Python cache and temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# IDE specific
+.vscode/
+.idea/
+.trae/
