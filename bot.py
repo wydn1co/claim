@@ -25,12 +25,35 @@ intents = discord.Intents.default()
 intents.members = True  # Required for role assignment
 intents.message_content = True # Required for prefix commands
 
+class ClaimModal(discord.ui.Modal, title='Claim Your Role'):
+    key_input = discord.ui.TextInput(
+        label='Enter Your Key',
+        placeholder='e.g., key-12345...',
+        min_length=1,
+        max_length=100,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await process_claim(interaction, self.key_input.value)
+
+class ClaimView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Persistent view
+
+    @discord.ui.button(label='Claim Role', style=discord.ButtonStyle.primary, custom_id='persistent_claim_button')
+    async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ClaimModal())
+
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix=PREFIX, intents=intents)
 
     async def setup_hook(self):
         try:
+            # Register persistent views
+            self.add_view(ClaimView())
+            
             logger.info("Syncing slash commands...")
             await self.tree.sync()
             logger.info("Slash commands synced!")
@@ -221,6 +244,17 @@ async def add_keys_slash(interaction: discord.Interaction, keys_str: str):
 async def claim_slash(interaction: discord.Interaction, key: str):
     await process_claim(interaction, key)
 
+@bot.tree.command(name='panel', description='Send a persistent claim panel with a button (Admin only)')
+@app_commands.checks.has_permissions(administrator=True)
+async def panel_slash(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Claim Your Role",
+        description="Click the button below to enter your key and claim your role.",
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message("Panel created!", ephemeral=True)
+    await interaction.channel.send(embed=embed, view=ClaimView())
+
 # --- PREFIX COMMANDS ---
 
 @bot.command(name='setrole')
@@ -236,6 +270,16 @@ async def add_keys_prefix(ctx, *, keys_str: str):
 @bot.command(name='claim')
 async def claim_prefix(ctx, key: str):
     await process_claim(ctx, key)
+
+@bot.command(name='panel')
+@commands.has_permissions(administrator=True)
+async def panel_prefix(ctx):
+    embed = discord.Embed(
+        title="Claim Your Role",
+        description="Click the button below to enter your key and claim your role.",
+        color=discord.Color.blue()
+    )
+    await ctx.send(embed=embed, view=ClaimView())
 
 # --- ERROR HANDLERS ---
 
