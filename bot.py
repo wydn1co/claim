@@ -131,6 +131,15 @@ async def process_addkeys(target: Union[discord.Interaction, commands.Context], 
 
 async def process_claim(target: Union[discord.Interaction, commands.Context], key: str):
     try:
+        # Delete the prefix command message immediately if applicable
+        if isinstance(target, commands.Context):
+            try:
+                await target.message.delete()
+            except discord.Forbidden:
+                logger.warning("Could not delete message: Missing 'Manage Messages' permission.")
+            except Exception as e:
+                logger.error(f"Failed to delete message: {e}")
+
         config = load_config()
         keys = config.get('keys', [])
         role_id = config.get('role_id')
